@@ -109,7 +109,7 @@ class WebIDLDictionary(WebIDLObject):
       [WebIDLDictionaryProperty.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLDictionaryProperty.check(entry + ';')])
 
 class WebIDLInterfaceProperty(WebIDLExpression):
-  _regex = re.compile(r'^(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
+  _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
   def __init__(self, name: str, type: str, is_const: bool, is_readonly: bool, is_optional: bool):
     self.name = name
     self.type = type
