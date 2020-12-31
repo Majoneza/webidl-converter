@@ -109,10 +109,11 @@ class WebIDLDictionary(WebIDLObject):
       [WebIDLDictionaryProperty.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLDictionaryProperty.check(entry + ';')])
 
 class WebIDLInterfaceProperty(WebIDLExpression):
-  _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
-  def __init__(self, name: str, type: str, is_const: bool, is_readonly: bool, is_optional: bool):
+  _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<static>static\s)(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
+  def __init__(self, name: str, type: str, is_static: bool, is_const: bool, is_readonly: bool, is_optional: bool):
     self.name = name
     self.type = type
+    self.is_static = is_static
     self.is_const = is_const
     self.is_readonly = is_readonly
     self.is_optional = is_optional
@@ -122,10 +123,11 @@ class WebIDLInterfaceProperty(WebIDLExpression):
   @classmethod
   def create(cls, text: str) -> WebIDLInterfaceProperty:
     groups = cls._regex.search(text).groupdict()
-    return cls(groups['name'], groups['type'], bool(groups['const']), bool(groups['readonly']), bool(groups['optional']))
+    return cls(groups['name'], groups['type'], bool(groups['static']), bool(groups['const']),
+      bool(groups['readonly']), bool(groups['optional']))
 
 class WebIDLFunctionArgument(WebIDLExpression):
-  _regex = re.compile(r'^(?:optional\s)?(?P<type>.+?)(?P<optional>\?)?\s(?P<name>\w+)$')
+  _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<optional>optional\s)?(?P<type>.+?)\??\s(?P<name>\w+)$')
   def __init__(self, name: str, type: str, is_optional: bool):
     self.name = name
     self.type = type
@@ -138,7 +140,7 @@ class WebIDLFunctionArgument(WebIDLExpression):
     return cls(groups['name'], groups['type'], bool(groups['optional']))
 
 class WebIDLInterfaceFunction(WebIDLExpression):
-  _regex = re.compile(r'^(?P<type>.+?)\s(?P<name>\w+)\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.+?)\))?;$')
+  _regex = re.compile(r'^(?P<static>static\s)(?P<type>.+?)\s(?P<name>\w+)?\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.+?)\))?;$')
   def __init__(self, name: str, returnType: str, arguments: List[WebIDLFunctionArgument], is_optional: bool):
     self.name = name
     self.returnType = returnType
