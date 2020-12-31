@@ -20,7 +20,14 @@ types_map = CustomDict({'byte': 'number', 'octet': 'number', 'short': 'number',
                         'unrestricted float': 'number', 'double': 'number',
                         'unrestricted double': 'number', 'bigint': 'BigInt', 'DOMString': 'string',
                         'ByteString': 'string', 'USVString': 'string', 'object': 'object',
-                        'symbol': 'symbol'})
+                        'symbol': 'symbol',
+                        'byte[]': 'number[]', 'octet[]': 'number[]', 'short[]': 'number[]',
+                        'unsigned short[]': 'number[]', 'long[]': 'number[]', 'unsigned long[]': 'number[]',
+                        'long long[]': 'number[]', 'unsigned long long[]': 'number[]', 'float[]': 'number[]',
+                        'unrestricted float[]': 'number[]', 'double[]': 'number[]',
+                        'unrestricted double[]': 'number[]', 'bigint[]': 'BigInt[]', 'DOMString[]': 'string[]',
+                        'ByteString[]': 'string[]', 'USVString[]': 'string[]', 'object[]': 'object[]',
+                        'symbol[]': 'symbol[]'})
 
 class WebIDLExpression(object):
   _regex: Pattern[str]
@@ -28,7 +35,7 @@ class WebIDLExpression(object):
     return ''
   @classmethod
   def check(cls, text: str) -> bool:
-    match = cls._regex.search(text.strip())
+    match = cls._regex.search(text)
     return match is not None
   @classmethod
   def create(cls, text: str) -> WebIDLExpression:
@@ -51,8 +58,8 @@ class WebIDLEnum(WebIDLObject):
         " | ".join(["\"{0}\"".format(value) for value in self.values]))
   @classmethod
   def create(cls, text: str) -> WebIDLEnum:
-    groups = cls._regex.search(text.strip()).groupdict()
-    return cls(groups['name'], [group.strip()[1:-1] for group in groups['data'].strip().split(',')])
+    groups = cls._regex.search(text).groupdict()
+    return cls(groups['name'], [group.strip()[1:-1] for group in groups['data'].split(',')])
 
 class WebIDLTypedef(WebIDLObject):
   _regex = re.compile(r'^typedef\s(?P<type>.+?)\s(?P<name>\w+);$')
@@ -60,10 +67,10 @@ class WebIDLTypedef(WebIDLObject):
     self.name = name
     self.type = type
   def getTypescript(self) -> str:
-    return 'export type {0} = {1};\n'.format(self.name, self.type)
+    return 'export type {0} = {1};\n'.format(self.name, types_map[self.type])
   @classmethod
   def create(cls, text: str) -> WebIDLTypedef:
-    groups = cls._regex.search(text.strip()).groupdict()
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'], groups['type'])
 
 class WebIDLDictionaryProperty(WebIDLExpression):
@@ -76,7 +83,7 @@ class WebIDLDictionaryProperty(WebIDLExpression):
     return '{0}{1}: {2};'.format(self.name, '?' if self.is_optional else '', types_map[self.type])
   @classmethod
   def create(cls, text: str) -> WebIDLDictionaryProperty:
-    groups = cls._regex.search(text.strip()).groupdict()
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'], groups['type'], bool(groups['optional']))
 
 class WebIDLDictionary(WebIDLObject):
@@ -90,19 +97,19 @@ class WebIDLDictionary(WebIDLObject):
   def addParent(self, parent: str) -> None:
     self.parents.append(parent)
   def getTypescript(self) -> str:
-    return 'export interface {0}{1} {b_open}\n{1}\n{b_close}\n'.format(self.name,
+    return 'export interface {0}{1} {b_open}\n{2}\n{b_close}\n'.format(self.name,
       '' if len(self.parents) == 0 else ' extends ' + ', '.join(self.parents),
       "\n".join(['\t{0}'.format(prty.getTypescript()) for prty in self.properties]),
       b_open='{', b_close='}')
   @classmethod
   def create(cls, text: str) -> WebIDLDictionary:
-    groups = cls._regex.search(text.strip())
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'],
-      [parent.strip() for parent in groups['parents'].strip().split(',')] if groups['parents'] else [],
-      [WebIDLDictionaryProperty.create(entry + ';') for entry in groups['data'].strip().split(';')[:-1] if WebIDLDictionaryProperty.check(entry + ';')])
+      [parent.strip() for parent in groups['parents'].split(',')] if groups['parents'] else [],
+      [WebIDLDictionaryProperty.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLDictionaryProperty.check(entry + ';')])
 
 class WebIDLInterfaceProperty(WebIDLExpression):
-  _regex = re.compile(r'^(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
+  _regex = re.compile(r'^(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
   def __init__(self, name: str, type: str, is_const: bool, is_readonly: bool, is_optional: bool):
     self.name = name
     self.type = type
@@ -114,7 +121,7 @@ class WebIDLInterfaceProperty(WebIDLExpression):
       'readonly ' if self.is_readonly else '', self.name, '?' if self.is_optional else '', types_map[self.type])
   @classmethod
   def create(cls, text: str) -> WebIDLInterfaceProperty:
-    groups = cls._regex.search(text.strip()).groupdict()
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'], groups['type'], bool(groups['const']), bool(groups['readonly']), bool(groups['optional']))
 
 class WebIDLFunctionArgument(WebIDLExpression):
@@ -127,11 +134,11 @@ class WebIDLFunctionArgument(WebIDLExpression):
     return '{0}{1}: {2}'.format(self.name, '?' if self.is_optional else '', types_map[self.type])
   @classmethod
   def create(cls, text: str) -> WebIDLFunctionArgument:
-    groups = cls._regex.search(text.strip())
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'], groups['type'], bool(groups['optional']))
 
 class WebIDLInterfaceFunction(WebIDLExpression):
-  _regex = re.compile(r'^(?P<type>.+)\s(?P<name>\w+?)\((?P<args>[^\)]+)?\)(\sraises\s?\((?P<exception>.+?)\))?;$')
+  _regex = re.compile(r'^(?P<type>.+?)\s(?P<name>\w+)\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.+?)\))?;$')
   def __init__(self, name: str, returnType: str, arguments: List[WebIDLFunctionArgument], is_optional: bool):
     self.name = name
     self.returnType = returnType
@@ -142,16 +149,16 @@ class WebIDLInterfaceFunction(WebIDLExpression):
       ", ".join([arg.getTypescript() for arg in self.arguments]), types_map[self.returnType])
   @classmethod
   def create(cls, text: str) -> WebIDLInterfaceFunction:
-    groups = cls._regex.search(text.strip())
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'], groups['type'],
-      [WebIDLFunctionArgument.create(arg) for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg)] if groups['args'] else [],
+      [WebIDLFunctionArgument.create(arg.strip()) for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else [],
       False)
 
 class WebIDLInterface(WebIDLObject):
   _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?interface\s(?P<name>\w+)(\s?:\s?(?P<parents>.+?))?\s?\{(?P<data>[^\}]*)\};$')
   _nointerface_attribute = re.compile(r'^NoInterfaceObject$')
-  _callback_attribute = re.compile(r'^Callback(=(?P<value>\w+))?$')
-  _constructor_attribute = re.compile(r'^Constructor\((?P<args>[^\)]*)\)$')
+  _callback_attribute = re.compile(r'^Callback(\s?=\s?(?P<value>\w+))?$')
+  _constructor_attribute = re.compile(r'^Constructor\((?P<args>[^\)]+)?\)$')
   def __init__(self, name: str, parents: List[str], attributes: List[str], properties: List[WebIDLInterfaceProperty], functions: List[WebIDLInterfaceFunction]):
     self.name = name
     self.parents = parents
@@ -175,11 +182,11 @@ class WebIDLInterface(WebIDLObject):
     return None
   @property
   def _isClass(self) -> bool:
-    return not self._hasAttribute(__class__._nointerface_attribute)
+    return not self._hasAttribute(__class__._nointerface_attribute) or any([prty.is_const for prty in self.properties])
   def _getConstructor(self) -> str:
     groups = self._getAttribute(__class__._constructor_attribute).groupdict()
     return 'constructor({0});'.format(', '.join(
-      [WebIDLFunctionArgument.create(arg).getTypescript() for arg in groups['args'].strip().split(',') if WebIDLFunctionArgument.check(arg)]))
+      [WebIDLFunctionArgument.create(arg.strip()).getTypescript() for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else []))
   def getTypescript(self) -> str:
     if self._hasAttribute(__class__._callback_attribute):
       groups = self._getAttribute(__class__._callback_attribute).groupdict()
@@ -203,12 +210,12 @@ class WebIDLInterface(WebIDLObject):
       b_open='{', b_close='}')
   @classmethod
   def create(cls, text: str) -> WebIDLInterface:
-    groups = cls._regex.search(text.strip())
+    groups = cls._regex.search(text).groupdict()
     return cls(groups['name'],
-      [parent.strip() for parent in groups['parents'].strip().split(',')] if groups['parents'] else [],
-      [attribute.strip() for attribute in groups['attributes'].strip().split(',')] if groups['attributes'] else [],
-      [WebIDLInterfaceProperty.create(entry + ';') for entry in groups['data'].strip().split(';')[:-1] if WebIDLInterfaceProperty.check(entry + ';')],
-      [WebIDLInterfaceFunction.create(entry + ';') for entry in groups['data'].strip().split(';')[:-1] if WebIDLInterfaceFunction.check(entry + ';')])
+      [parent.strip() for parent in groups['parents'].split(',')] if groups['parents'] else [],
+      [attribute.strip() for attribute in groups['attributes'].split(',')] if groups['attributes'] else [],
+      [WebIDLInterfaceProperty.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLInterfaceProperty.check(entry + ';')],
+      [WebIDLInterfaceFunction.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLInterfaceFunction.check(entry + ';')])
 
 def findWebIDLObject(objects: List[WebIDLObject], name: str) -> Optional[WebIDLObject]:
   for obj in objects:
@@ -219,12 +226,14 @@ def findWebIDLObject(objects: List[WebIDLObject], name: str) -> Optional[WebIDLO
 def convert(inputFile: TextIOWrapper, outputFile: TextIOWrapper) -> None:
   objects: List[WebIDLObject] = []
   lines: List[str] = []
-  line: str = '-1'
+  original_line: str = '-1'
+  line: str = ''
   lineCounter = 1
   started_object_statement = False
-  while line != '':
+  while original_line != '':
     try:
-      line = inputFile.readline().strip()
+      original_line = inputFile.readline()
+      line = original_line.strip()
     except:
       print('Line {0} skipped'.format(lineCounter))
     lines.append(line)
