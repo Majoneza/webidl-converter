@@ -140,7 +140,7 @@ class WebIDLFunctionArgument(WebIDLExpression):
     return cls(groups['name'], groups['type'], bool(groups['optional']))
 
 class WebIDLInterfaceFunction(WebIDLExpression):
-  _regex = re.compile(r'^(?P<static>static\s)(?P<type>.+?)\s(?P<name>\w+)?\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.+?)\))?;$')
+  _regex = re.compile(r'^(?P<static>static\s)?(?P<keyword>(?:getter|setter|deleter|stringifier)\s)?(?P<type>.+?)\s(?P<name>\w+)?\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.+?)\))?;$')
   def __init__(self, name: str, returnType: str, arguments: List[WebIDLFunctionArgument], is_optional: bool):
     self.name = name
     self.returnType = returnType
