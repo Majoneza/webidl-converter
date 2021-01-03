@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from io import TextIOWrapper
-from typing import List, Pattern, Optional, Match
+from typing import List, Pattern, Optional, Match, Any
 
 STATEMENT_TERMINATOR = re.compile(r';')
 COMMENT = re.compile(r'//.*?\\n|/\*.*?\*/')
@@ -109,22 +109,24 @@ class WebIDLDictionary(WebIDLObject):
       [WebIDLDictionaryProperty.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLDictionaryProperty.check(entry + ';')])
 
 class WebIDLInterfaceProperty(WebIDLExpression):
-  _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<static>static\s)(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
-  def __init__(self, name: str, type: str, is_static: bool, is_const: bool, is_readonly: bool, is_optional: bool):
+  _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<static>static\s)?(?P<const>const\s)?(?P<readonly>readonly\s)?(?P<attribute>attribute\s)?(?P<type>[^\?]+?)(?P<optional>\?)?\s(?P<name>\w+)(\s?=\s?(?P<value>.+?))?(\sraises\s?\((?P<exception>[^\)]+)\))?;$')
+  def __init__(self, name: str, type: str, is_static: bool, is_const: bool, is_readonly: bool, is_optional: bool, value: Optional[Any]):
     self.name = name
     self.type = type
     self.is_static = is_static
     self.is_const = is_const
     self.is_readonly = is_readonly
     self.is_optional = is_optional
+    self.value = value
   def getTypescript(self) -> str:
-    return '{0}{1}{2}{3}: {4};'.format('static ' if self.is_const else '',
-      'readonly ' if self.is_readonly else '', self.name, '?' if self.is_optional else '', types_map[self.type])
+    return '{0}{1}{2}{3}{4}: {5};'.format('static ' if self.is_static else '', 'static readonly ' if self.is_const else '',
+      'readonly ' if self.is_readonly else '', self.name, '?' if self.is_optional else '',
+      str(self.value) if self.value else types_map[self.type])
   @classmethod
   def create(cls, text: str) -> WebIDLInterfaceProperty:
     groups = cls._regex.search(text).groupdict()
     return cls(groups['name'], groups['type'], bool(groups['static']), bool(groups['const']),
-      bool(groups['readonly']), bool(groups['optional']))
+      bool(groups['readonly']), bool(groups['optional']), groups['value'])
 
 class WebIDLFunctionArgument(WebIDLExpression):
   _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?(?P<optional>optional\s)?(?P<type>.+?)\??\s(?P<name>\w+)$')
@@ -140,7 +142,7 @@ class WebIDLFunctionArgument(WebIDLExpression):
     return cls(groups['name'], groups['type'], bool(groups['optional']))
 
 class WebIDLInterfaceFunction(WebIDLExpression):
-  _regex = re.compile(r'^(?P<static>static\s)?(?P<keyword>(?:getter|setter|deleter|stringifier)\s)?(?P<type>.+?)\s(?P<name>\w+)?\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.+?)\))?;$')
+  _regex = re.compile(r'^(?P<static>static\s)?(?P<keyword>(?:getter|setter|deleter|stringifier)\s)?(?P<type>.+?)\s(?P<name>\w+)?\((?P<args>[^\)]+)?\)(\s?raises\s?\((?P<exception>.*?)\))?;$')
   def __init__(self, name: str, returnType: str, arguments: List[WebIDLFunctionArgument], is_optional: bool):
     self.name = name
     self.returnType = returnType
@@ -182,13 +184,24 @@ class WebIDLInterface(WebIDLObject):
       if match is not None:
         return match
     return None
+  def _getAttributes(self, pattern: Pattern[str]) -> List[Match[str]]:
+    results: List[Match[str]] = []
+    for attr in self.attributes:
+      match = pattern.search(attr)
+      if match is not None:
+        results.append(match)
+    return results
   @property
   def _isClass(self) -> bool:
     return not self._hasAttribute(__class__._nointerface_attribute) or any([prty.is_const for prty in self.properties])
   def _getConstructor(self) -> str:
-    groups = self._getAttribute(__class__._constructor_attribute).groupdict()
-    return 'constructor({0});'.format(', '.join(
-      [WebIDLFunctionArgument.create(arg.strip()).getTypescript() for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else []))
+    matches = self._getAttributes(__class__._constructor_attribute)
+    result = ''
+    for match in matches:
+      groups = match.groupdict()
+      result += 'constructor({0});'.format(', '.join(
+        [WebIDLFunctionArgument.create(arg.strip()).getTypescript() for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else []))
+    return '\n'.join(result)
   def getTypescript(self) -> str:
     if self._hasAttribute(__class__._callback_attribute):
       groups = self._getAttribute(__class__._callback_attribute).groupdict()
