@@ -158,79 +158,69 @@ class WebIDLInterfaceFunction(WebIDLExpression):
       [WebIDLFunctionArgument.create(arg.strip()) for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else [],
       False)
 
+class WebIDLInterfaceConstructor(WebIDLExpression):
+  _regex = re.compile(r'^Constructor\((?P<args>[^\)]+)?\)$')
+  def __init__(self, arguments: List[WebIDLFunctionArgument]):
+    self.arguments = arguments
+  def getTypescript(self) -> str:
+    return 'constructor({0});'.format(", ".join([arg.getTypescript() for arg in self.arguments]))
+  @classmethod
+  def create(cls, text: str) -> WebIDLInterfaceConstructor:
+    groups = cls._regex.search(text).groupdict()
+    return cls(
+      [WebIDLFunctionArgument.create(arg.strip()) for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else [])
+
 class WebIDLInterface(WebIDLObject):
   _regex = re.compile(r'^(\[(?P<attributes>.+?)(?<!\[)\]\s?)?interface\s(?P<name>\w+)(\s?:\s?(?P<parents>.+?))?\s?\{(?P<data>[^\}]*)\};$')
-  _nointerface_attribute = re.compile(r'^NoInterfaceObject$')
-  _callback_attribute = re.compile(r'^Callback(\s?=\s?(?P<value>\w+))?$')
-  _constructor_attribute = re.compile(r'^Constructor\((?P<args>[^\)]+)?\)$')
-  def __init__(self, name: str, parents: List[str], attributes: List[str], properties: List[WebIDLInterfaceProperty], functions: List[WebIDLInterfaceFunction]):
+  _nointerface_attribute = re.compile(r'NoInterfaceObject')
+  _callback_attribute = re.compile(r'Callback(\s?=\s?(?P<value>\w+))?')
+  _constructor_attribute = re.compile(r'Constructor\((?P<args>[^\)]+)?\)')
+  def __init__(self, name: str, parents: List[str], constructors: List[WebIDLInterfaceConstructor], properties: List[WebIDLInterfaceProperty],
+                    functions: List[WebIDLInterfaceFunction], is_nointerface: bool, is_callback: bool | Any):
     self.name = name
     self.parents = parents
-    self.attributes = attributes
+    self.constructors = constructors
     self.properties = properties
     self.functions = functions
+    self.is_nointerface = is_nointerface
+    self.is_callback = is_callback
   def addProperty(self, property: WebIDLInterfaceProperty):
     self.properties.append(property)
   def addParent(self, parent: str):
     self.parents.append(parent)
-  def _hasAttribute(self, pattern: Pattern[str]) -> bool:
-    for attr in self.attributes:
-      if pattern.search(attr) is not None:
-        return True
-    return False
-  def _getAttribute(self, pattern: Pattern[str]) -> Optional[Match[str]]:
-    for attr in self.attributes:
-      match = pattern.search(attr)
-      if match is not None:
-        return match
-    return None
-  def _getAttributes(self, pattern: Pattern[str]) -> List[Match[str]]:
-    results: List[Match[str]] = []
-    for attr in self.attributes:
-      match = pattern.search(attr)
-      if match is not None:
-        results.append(match)
-    return results
   @property
   def _isClass(self) -> bool:
-    return not self._hasAttribute(__class__._nointerface_attribute) or any([prty.is_const for prty in self.properties])
-  def _getConstructor(self) -> str:
-    matches = self._getAttributes(__class__._constructor_attribute)
-    result = ''
-    for match in matches:
-      groups = match.groupdict()
-      result += 'constructor({0});'.format(', '.join(
-        [WebIDLFunctionArgument.create(arg.strip()).getTypescript() for arg in groups['args'].split(',') if WebIDLFunctionArgument.check(arg.strip())] if groups['args'] else []))
-    return '\n'.join(result)
+    return not self.is_nointerface or any([prty.is_const for prty in self.properties])
   def getTypescript(self) -> str:
-    if self._hasAttribute(__class__._callback_attribute):
-      groups = self._getAttribute(__class__._callback_attribute).groupdict()
+    if self.is_callback:
       if len(self.properties) == 0:
-        if groups['value']:
-          if groups['value'] == 'FunctionOnly' and len(self.functions) == 1:
-            return 'export {0} {1}{2} {b_open}\n\t({3}): {4};\n{b_close}\n'.format('class' if self._isClass else 'interface',
-              self.name, '' if len(self.parents) == 0 else ' extends ' + ', '.join(self.parents),
-              ', '.join([arg.getTypescript() for arg in self.functions[0].arguments]), self.functions[0].returnType,
-              b_open='{', b_close='}')
-          else:
-            print('Error: {0}'.format(self.name))
-        else:
+        if self.is_callback == True:
           # All functions should be optional
           for func in self.functions:
             func.is_optional = True
-    return 'export {0} {1}{2} {b_open}\n{3}{4}\n{b_close}\n'.format('class' if self._isClass else 'interface',
+        elif self.is_callback == 'FunctionOnly' and len(self.functions) == 1:
+          return 'export {0} {1}{2} {b_open}\n\t({3}): {4};\n{b_close}\n'.format('class' if self._isClass else 'interface',
+            self.name, '' if len(self.parents) == 0 else ' extends ' + ', '.join(self.parents),
+            ', '.join([arg.getTypescript() for arg in self.functions[0].arguments]), self.functions[0].returnType,
+            b_open='{', b_close='}')
+        else:
+          print('Error: {0}'.format(self.name))
+    return 'export {0} {1}{2} {b_open}\n{3}\n{b_close}\n'.format('class' if self._isClass else 'interface',
       self.name, '' if len(self.parents) == 0 else ' extends ' + ', '.join(self.parents),
-      '\t{0}\n'.format(self._getConstructor()) if self._hasAttribute(__class__._constructor_attribute) else '',
-      '\n'.join(['\t' + obj.getTypescript() for obj in [*self.properties, *self.functions]]),
+      '\n'.join(['\t' + obj.getTypescript() for obj in [*self.constructors, *self.properties, *self.functions]]),
       b_open='{', b_close='}')
   @classmethod
   def create(cls, text: str) -> WebIDLInterface:
     groups = cls._regex.search(text).groupdict()
+    callback_match = cls._callback_attribute.search(groups['attributes']) if groups['attributes'] else None
+    callback_groups = callback_match.groupdict() if callback_match else None
     return cls(groups['name'],
       [parent.strip() for parent in groups['parents'].split(',')] if groups['parents'] else [],
-      [attribute.strip() for attribute in groups['attributes'].split(',')] if groups['attributes'] else [],
+      [WebIDLInterfaceConstructor.create(groups['attributes'][m.start():m.end()]) for m in cls._constructor_attribute.finditer(groups['attributes'])] if groups['attributes'] else [],
       [WebIDLInterfaceProperty.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLInterfaceProperty.check(entry + ';')],
-      [WebIDLInterfaceFunction.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLInterfaceFunction.check(entry + ';')])
+      [WebIDLInterfaceFunction.create(entry + ';') for entry in groups['data'].split(';')[:-1] if WebIDLInterfaceFunction.check(entry + ';')],
+      cls._nointerface_attribute.search(groups['attributes']) is not None if groups['attributes'] else False,
+      (callback_groups['value'] if callback_groups['value'] else True) if callback_match else False)
 
 def findWebIDLObject(objects: List[WebIDLObject], name: str) -> Optional[WebIDLObject]:
   for obj in objects:
